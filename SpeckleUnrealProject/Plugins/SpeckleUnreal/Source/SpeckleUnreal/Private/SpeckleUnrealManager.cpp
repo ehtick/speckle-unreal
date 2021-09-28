@@ -1,33 +1,22 @@
 #include "SpeckleUnrealManager.h"
 
-#include "MaterialConverter.h"
-
 // Sets default values
 ASpeckleUnrealManager::ASpeckleUnrealManager()
 {
-	static ConstructorHelpers::FObjectFinder<UMaterial> SpeckleMaterial(TEXT("Material'/SpeckleUnreal/SpeckleMaterial.SpeckleMaterial'"));
-	static ConstructorHelpers::FObjectFinder<UMaterial> SpeckleGlassMaterial(TEXT("Material'/SpeckleUnreal/SpeckleGlassMaterial.SpeckleGlassMaterial'"));
-
 	//When the object is constructed, Get the HTTP module
 	Http = &FHttpModule::Get();
-
-	World = GetWorld();
-
-	DefaultMeshMaterial = SpeckleMaterial.Object;
-	BaseMeshOpaqueMaterial = SpeckleMaterial.Object;
-	BaseMeshTransparentMaterial = SpeckleGlassMaterial.Object;
 }
+
 
 // Called when the game starts or when spawned
 void ASpeckleUnrealManager::BeginPlay()
 {
 	Super::BeginPlay();
 	
-	World = GetWorld();
-	ConvertedMaterials.Empty();
-	
 	if (ImportAtRuntime)
 		ImportSpeckleObject();
+
+	
 	
 }
 
@@ -94,7 +83,16 @@ void ASpeckleUnrealManager::OnStreamTextResponseReceived(FHttpRequestPtr Request
 
 	GEngine->AddOnScreenDebugMessage(0, 5.0f, FColor::Green, FString::Printf(TEXT("[Speckle] Converting %d objects..."), lineCount));
 
-	ImportObjectFromCache(SpeckleObjects[ObjectID]);
+	if(Converters.Num() <= 0)
+	{
+		const FString message = TEXT("Cannot inport Speckle Objects, Speckle Unreal Manager has no converter components.");
+		GEngine->AddOnScreenDebugMessage(0, 5.0f, FColor::Green, message);
+		
+	}
+	else
+	{
+		ImportObjectFromCache(SpeckleObjects[ObjectID]);
+	}
 	
 	for (auto& m : CreatedObjects)
 	{
@@ -111,13 +109,24 @@ void ASpeckleUnrealManager::OnStreamTextResponseReceived(FHttpRequestPtr Request
 
 }
 
+void ASpeckleUnrealManager::AddConverter(UMeshConverter* MeshConverter)
+{
+	Converters.Add(MeshConverter->GetSpeckleType(), MeshConverter);
+}
 
+int32 ASpeckleUnrealManager::RemoveConverter(FString& SpeckleType)
+{
+	return Converters.Remove(SpeckleType);
+}
 
 void ASpeckleUnrealManager::DeleteObjects()
 {
-
-	ConvertedMaterials.Empty();
-	for (auto& m : CreatedObjects)
+	for(const auto& C : Converters)
+	{
+		C.Value->DeleteObjects();		
+	}
+	
+	for (const auto& m : CreatedObjects)
 	{
 		m.Value->ConditionalBeginDestroy();
 	}
@@ -125,3 +134,5 @@ void ASpeckleUnrealManager::DeleteObjects()
 	CreatedObjects.Empty();
 	InProgressObjects.Empty();
 }
+
+

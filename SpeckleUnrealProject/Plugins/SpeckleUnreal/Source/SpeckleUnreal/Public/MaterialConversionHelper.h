@@ -2,23 +2,17 @@
 
 #pragma once
 
-#include "CoreMinimal.h"
 #include "RenderMaterial.h"
-#include "UObject/Object.h"
-#include "MaterialConverter.generated.h"
 
 /**
- * 
+ * Helper functions for converting materials
  */
-UCLASS()
-class SPECKLEUNREAL_API UMaterialConverter : public UObject
+class FMaterialConversionHelper
 {
-	GENERATED_BODY()
-
 	public:
 
 		static void AssignPropertiesFromSpeckle(UMaterialInstanceDynamic* Material, const URenderMaterial* SpeckleMaterial);
 
-		static URenderMaterial* ParseRenderMaterial(const TSharedPtr<FJsonObject> obj);
+		static URenderMaterial* ParseRenderMaterial(const TSharedPtr<FJsonObject> SpeckleObject);
 
 };

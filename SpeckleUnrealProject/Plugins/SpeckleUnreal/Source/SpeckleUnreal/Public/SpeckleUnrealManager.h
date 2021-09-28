@@ -1,35 +1,40 @@
 #pragma once
 
-// logs
-#include "Engine/Engine.h"
-
 // json manipulation
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 
 // web requests
+#include "Converter/MeshConverter.h"
 #include "Runtime/Online/HTTP/Public/Http.h"
 
-#include "SpeckleUnrealMesh.h"
-#include "SpeckleUnrealLayer.h"
 #include "GameFramework/Actor.h"
 #include "SpeckleUnrealManager.generated.h"
 
+class USpeckleUnrealLayer;
+class IConverter;
 UCLASS(BlueprintType)
 class SPECKLEUNREAL_API ASpeckleUnrealManager : public AActor
 {
 	GENERATED_BODY()
 
+	
 public:
+	
 	FHttpModule* Http;
+	
 
-	/* The actual HTTP call */
 	UFUNCTION(CallInEditor, Category = "Speckle")
 		void ImportSpeckleObject();
 
 	UFUNCTION(CallInEditor, Category = "Speckle")
 		void DeleteObjects();
 
+	UFUNCTION(BlueprintCallable, Category = "Speckle")
+		void AddConverter(UMeshConverter* MeshConverter);
+
+	UFUNCTION(BlueprintCallable, Category = "Speckle")
+		int32 RemoveConverter(FString& SpeckleType);
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle")
 		FString ServerUrl {
@@ -50,69 +55,52 @@ public:
 		FString AuthToken {
 		""
 	};
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle")
-		TSubclassOf<ASpeckleUnrealMesh> MeshActor {
-		ASpeckleUnrealMesh::StaticClass()
-	};
-
+	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle")
 	bool ImportAtRuntime;
 
 	
-	/** Material to be applied to meshes when no RenderMaterial can be converted */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle|Materials")
-		UMaterialInterface* DefaultMeshMaterial;
-
-	/** Material Parent for converted opaque materials*/
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle|Materials")
-		UMaterialInterface* BaseMeshOpaqueMaterial;
-
-	/** Material Parent for converted materials with an opacity less than one */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle|Materials")
-		UMaterialInterface* BaseMeshTransparentMaterial;
-	
-	/** When generating meshes, materials in this TMap will be used instead of converted ones if the key matches the ID of the Object's RenderMaterial. (Takes priority over name matching)*/
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle|Materials|Overrides", DisplayName = "By Speckle ID")
-	TMap<FString, UMaterialInterface*> MaterialOverridesById;
-
-	/** When generating meshes, materials in this TSet will be used instead of converted ones if the material name matches the name of the Object's RenderMaterial. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle|Materials|Overrides", DisplayName = "By Name")
-	TSet<UMaterialInterface*> MaterialOverridesByName;
-
-	/** Materials converted from stream RenderMaterial objects */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Speckle|Materials")
-	TMap<FString, UMaterialInterface*> ConvertedMaterials;
-
 	TArray<USpeckleUnrealLayer*> SpeckleUnrealLayers;
 
 	void OnStreamTextResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful);
 
+
+	/** Attempts to find an object in ASpeckleUnrealManager::SpeckleObjects with the specified id.
+	 *  @param ObjectSpeckleId the Speckle ID of the desired object
+	 *  @param OutObject the found object
+	 *  @returns false if no object with ObjectSpeckleId is found 
+	 */
+	UFUNCTION()
+	bool TryGetExistingNative(const FString& ObjectSpeckleId, UObject*& OutObject);
+
+	/** Will parse the specified string as length unit
+	 * @returns unit scale factor
+	*/
+	UFUNCTION()
+	static float ParseScaleFactor(const FString& Units);
+
+	/**
+	 * @param ArrayField An array of Chunk objects
+	 * @returns a flat array of the chunk objects' data
+	 */
+	TArray<TSharedPtr<FJsonValue>> CombineChunks(const TArray<TSharedPtr<FJsonValue>> * const ArrayField) const;
+	
 	// Sets default values for this actor's properties
 	ASpeckleUnrealManager();
-
+	
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
+	const TMap<FString, TSharedPtr<FJsonObject>> * const GetSpeckleObjects() const {return &SpeckleObjects; }
 protected:
-
-	UWorld* World;
-	
-
+		
 	TMap<FString, TSharedPtr<FJsonObject>> SpeckleObjects;
 
 	TMap<FString, UObject*> CreatedObjects;
 	TMap<FString, UObject*> InProgressObjects;
-	
-	bool TryGetExistingNative(const FString &ObjectId, UObject*& OutObject);
 
-	void ImportObjectFromCache(const TSharedPtr<FJsonObject> SpeckleObject, const TSharedPtr<FJsonObject> ParentObj = nullptr);
+	TMap<FString, IConverter*> Converters;
 
-	UMaterialInterface* CreateMaterial(TSharedPtr<FJsonObject> RenderMaterialObject, bool AcceptMaterialOverride = true);
-	UMaterialInterface* CreateMaterial(const class URenderMaterial* SpeckleMaterial, bool AcceptMaterialOverride = true);
-	ASpeckleUnrealMesh* CreateMesh(const TSharedPtr<FJsonObject> Obj, const TSharedPtr<FJsonObject> Parent = nullptr);
+	void ImportObjectFromCache(const TSharedPtr<FJsonObject> SpeckleObject, const TSharedPtr<FJsonObject> ParentObject = nullptr);
 	
-	
-	TArray<TSharedPtr<FJsonValue>> CombineChunks(const TArray<TSharedPtr<FJsonValue>> * const ArrayField);
-	static float ParseScaleFactor(const FString& Units);
 };
