@@ -32,7 +32,7 @@ public:
 	// Sets default values for this component's properties
 	UMeshConverter();
 
-	virtual void OnRegister() override;
+	virtual void InitializeComponent() override;
 
 	/** Material to be applied to meshes when no RenderMaterial can be converted */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Speckle|Mesh|Materials")

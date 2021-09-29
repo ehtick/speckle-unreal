@@ -14,19 +14,22 @@ UMeshConverter::UMeshConverter()
 	BaseMeshOpaqueMaterial = SpeckleMaterial.Object;
 	BaseMeshTransparentMaterial = SpeckleGlassMaterial.Object;
 	
-	//bWantsInitializeComponent = true;
+	bWantsInitializeComponent = true;
+	UActorComponent::SetAutoActivate(true);
+	
+	
 }
 
 
-void UMeshConverter::OnRegister()
+void UMeshConverter::InitializeComponent()
 {
-	Super::OnRegister();
+	Super::InitializeComponent();
 	
 	Manager = static_cast<ASpeckleUnrealManager*>(this->GetOwner());
 	ConvertedMaterials.Empty();
 	World = GetWorld();
 	Manager->AddConverter(this);
-	
+
 }
 
 

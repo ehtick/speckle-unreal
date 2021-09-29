@@ -23,6 +23,13 @@ void ASpeckleUnrealManager::BeginPlay()
 /*Import the Speckle object*/
 void ASpeckleUnrealManager::ImportSpeckleObject()
 {
+	if(Converters.Num() <= 0)
+	{
+		const FString message = TEXT("Cannot inport Speckle Objects, Speckle Unreal Manager has no converter components.");
+		GEngine->AddOnScreenDebugMessage(0, 5.0f, FColor::Green, message);
+		return;
+	}
+	
 	FString url = ServerUrl + "/objects/" + StreamID + "/" + ObjectID;
 	GEngine->AddOnScreenDebugMessage(0, 5.0f, FColor::Green, "[Speckle] Downloading: " + url);
 
@@ -83,16 +90,10 @@ void ASpeckleUnrealManager::OnStreamTextResponseReceived(FHttpRequestPtr Request
 
 	GEngine->AddOnScreenDebugMessage(0, 5.0f, FColor::Green, FString::Printf(TEXT("[Speckle] Converting %d objects..."), lineCount));
 
-	if(Converters.Num() <= 0)
-	{
-		const FString message = TEXT("Cannot inport Speckle Objects, Speckle Unreal Manager has no converter components.");
-		GEngine->AddOnScreenDebugMessage(0, 5.0f, FColor::Green, message);
-		
-	}
-	else
-	{
-		ImportObjectFromCache(SpeckleObjects[ObjectID]);
-	}
+
+
+	ImportObjectFromCache(SpeckleObjects[ObjectID]);
+
 	
 	for (auto& m : CreatedObjects)
 	{
