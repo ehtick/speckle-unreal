@@ -3,10 +3,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "RenderMaterial.h"
 #include "UObject/Object.h"
 #include "MaterialConverter.generated.h"
 
+class URenderMaterial;
 /**
  * 
  */
@@ -16,9 +16,8 @@ class SPECKLEUNREAL_API UMaterialConverter : public UObject
 	GENERATED_BODY()
 
 	public:
-
+		UFUNCTION(BlueprintCallable)
 		static void AssignPropertiesFromSpeckle(UMaterialInstanceDynamic* Material, const URenderMaterial* SpeckleMaterial);
-
-		static URenderMaterial* ParseRenderMaterial(const TSharedPtr<FJsonObject> obj);
+	
 
 };

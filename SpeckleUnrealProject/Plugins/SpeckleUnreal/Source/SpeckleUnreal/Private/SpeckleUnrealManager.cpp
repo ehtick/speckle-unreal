@@ -1,24 +1,18 @@
 #include "SpeckleUnrealManager.h"
 
 #include "MaterialConverter.h"
+#include "Converters/StaticMeshConverter.h"
 #include "Kismet/GameplayStatics.h"
 
 // Sets default values
 ASpeckleUnrealManager::ASpeckleUnrealManager()
 {
-	static ConstructorHelpers::FObjectFinder<UMaterial> SpeckleMaterial(TEXT("Material'/SpeckleUnreal/SpeckleMaterial.SpeckleMaterial'"));
-	static ConstructorHelpers::FObjectFinder<UMaterial> SpeckleGlassMaterial(TEXT("Material'/SpeckleUnreal/SpeckleGlassMaterial.SpeckleGlassMaterial'"));
-
 	//When the object is constructed, Get the HTTP module
 	Http = &FHttpModule::Get();
 	
 	SetRootComponent(CreateDefaultSubobject<USceneComponent>("Root"));
 	RootComponent->SetRelativeScale3D(FVector(-1,1,1));
     RootComponent->SetMobility(EComponentMobility::Static); 
-	
-	DefaultMeshMaterial = SpeckleMaterial.Object;
-	BaseMeshOpaqueMaterial = SpeckleMaterial.Object;
-	BaseMeshTransparentMaterial = SpeckleGlassMaterial.Object;
 }
 
 // Called when the game starts or when spawned
@@ -102,6 +96,23 @@ void ASpeckleUnrealManager::ImportSpeckleObject()
 	Request->ProcessRequest();
 }
 
+void ASpeckleUnrealManager::Add()
+{
+	if(!ToAdd) return;
+
+	if(Kit.Converters.Contains("test") && Kit.Converters["test"] == nullptr) return;
+	
+	UObject* c = NewObject<UObject>(this, ToAdd.Get());
+	//UMeshConverter* c = NewObject<UMeshConverter>(this, UStaticMeshConverter::StaticClass());
+	//TScriptInterface<IConverter> con;
+	
+	//con.SetInterface(Cast<IConverter>(c));
+	//con.SetObject(c);
+	c->AddToRoot(); //THIS CODE IS FOR DEBUG PURPOSES ONLY
+	
+	Kit.Converters.Add("test",c);
+}
+
 void ASpeckleUnrealManager::OnStreamTextResponseReceived(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bWasSuccessful)
 {
 	if (!bWasSuccessful)
@@ -159,7 +170,7 @@ void ASpeckleUnrealManager::OnStreamTextResponseReceived(FHttpRequestPtr Request
 	}
 	
 	
-	ImportObjectFromCache(this, SpeckleObjects[ObjectID]);
+	//Kit->GetDefaultObject().ToNative(this, this, SpeckleObjects[ObjectID]);
 	
 	for (const auto& m : CreatedObjectsCache)
 	{
@@ -180,7 +191,7 @@ void ASpeckleUnrealManager::OnStreamTextResponseReceived(FHttpRequestPtr Request
 
 void ASpeckleUnrealManager::DeleteObjects()
 {
-	ConvertedMaterials.Empty();
+	//Kit->Clear();
 	
 	for (const auto& m : CreatedObjectsCache)
 	{

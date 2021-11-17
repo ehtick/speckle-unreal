@@ -1,161 +1,9 @@
 #include "SpeckleUnrealManager.h"
 
-#include "MaterialConverter.h"
-#include "SpeckleUnrealMesh.h"
-
-
-void ASpeckleUnrealManager::ImportObjectFromCache(AActor* AOwner, const TSharedPtr<FJsonObject> SpeckleObject, const TSharedPtr<FJsonObject> ParentObject)
-{
-	if (!SpeckleObject->HasField("speckle_type"))
-		return;
-	if (SpeckleObject->GetStringField("speckle_type") == "reference" && SpeckleObject->HasField("referencedId")) {
-		TSharedPtr<FJsonObject> ReferencedObj;
-		if (SpeckleObjects.Contains(SpeckleObject->GetStringField("referencedId")))
-			ImportObjectFromCache(AOwner, SpeckleObjects[SpeckleObject->GetStringField("referencedId")], ParentObject);
-		return;
-	}
-	if (!SpeckleObject->HasField("id"))
-		return;
-
-	
-	const FString ObjectId = SpeckleObject->GetStringField("id");
-	const FString SpeckleType = SpeckleObject->GetStringField("speckle_type");
-	
-	AActor* Native = nullptr;
-
-
-	
-	if(SpeckleType == "Objects.Geometry.Mesh")
-	{
-		Native = CreateMesh(SpeckleObject, ParentObject);
-	}
-	//else if(SpeckleType == "Objects.Geometry.PointCloud")
-	//{
-	//    Native = CreatePointCloud(SpeckleObj);
-	//}
-	else if(SpeckleType == "Objects.Other.BlockInstance")
-	{
-		Native = CreateBlockInstance(SpeckleObject);
-	}
-	else if(SpeckleType == "Objects.Other.BlockDefinition")
-	{
-		return; //Ignore block definitions, Block instances will create geometry instead.
-	}
-
-	
-	if(IsValid(Native))
-	{
-        Native->AttachToActor(AOwner, FAttachmentTransformRules::KeepRelativeTransform);
-        Native->SetOwner(AOwner);
-
-        InProgressObjectsCache.Add(Native);
-	}
-	else
-	{
-		Native = AOwner;
-	}
-	
-	
-	//Convert Children
-	for (const auto& Kv : SpeckleObject->Values)
-	{
-
-		const TSharedPtr<FJsonObject>* SubObjectPtr;
-		if (Kv.Value->TryGetObject(SubObjectPtr))
-		{
-			ImportObjectFromCache(Native, *SubObjectPtr, SpeckleObject);
-			continue;
-		}
-
-		const TArray<TSharedPtr<FJsonValue>>* SubArrayPtr;
-		if (Kv.Value->TryGetArray(SubArrayPtr))
-		{
-			for (const auto& ArrayElement : *SubArrayPtr)
-			{
-				const TSharedPtr<FJsonObject>* ArraySubObjPtr;
-				if (!ArrayElement->TryGetObject(ArraySubObjPtr))
-					continue;
-				ImportObjectFromCache(Native, *ArraySubObjPtr, SpeckleObject);
-			}
-		}
-	}
-}
-
-UMaterialInterface* ASpeckleUnrealManager::CreateMaterial(const TSharedPtr<FJsonObject> RenderMaterialObject, const bool AcceptMaterialOverride)
-{
-	TSharedPtr<FJsonObject> ActualRenderMaterialObject = RenderMaterialObject;
-	
-	if (RenderMaterialObject->GetStringField("speckle_type") == "reference")
-		ActualRenderMaterialObject = SpeckleObjects[RenderMaterialObject->GetStringField("referencedId")];
-
-	//Parse to a URenderMaterial
-	const URenderMaterial* SpeckleMaterial = UMaterialConverter::ParseRenderMaterial(ActualRenderMaterialObject);
-
-	return CreateMaterial(SpeckleMaterial, AcceptMaterialOverride);
-}
-
-UMaterialInterface* ASpeckleUnrealManager::CreateMaterial(const URenderMaterial* SpeckleMaterial, const bool AcceptMaterialOverride)
-{
-	const auto MaterialID = SpeckleMaterial->ObjectID;
-
-	
-	if(AcceptMaterialOverride)
-	{
-		//Override by id
-		if(MaterialOverridesById.Contains(MaterialID))
-		{
-			return MaterialOverridesById[MaterialID];
-		}
-		//Override by name
-		const FString Name = SpeckleMaterial->Name;
-		for (UMaterialInterface* Mat : MaterialOverridesByName)
-		{
-			if(Mat->GetName() == Name) return Mat;
-		}
-	}
-
-
-	if(ConvertedMaterials.Contains(MaterialID))
-	{
-		return ConvertedMaterials[MaterialID];
-	}
-	
-	//Create Convert Material Instance
-	UMaterialInterface* ExplicitMaterial;
-	if(SpeckleMaterial->Opacity >= 1)
-		ExplicitMaterial = BaseMeshOpaqueMaterial;
-	else
-		ExplicitMaterial = BaseMeshTransparentMaterial;
-		
-	UMaterialInstanceDynamic* DynMaterial = UMaterialInstanceDynamic::Create(ExplicitMaterial, this, FName(SpeckleMaterial->Name));
-	UMaterialConverter::AssignPropertiesFromSpeckle(DynMaterial, SpeckleMaterial);
-
-	ConvertedMaterials.Add(MaterialID, DynMaterial);
-	
-	return DynMaterial;
-}
 
 
 
-TArray<TSharedPtr<FJsonValue>> ASpeckleUnrealManager::CombineChunks(const TArray<TSharedPtr<FJsonValue>>& ArrayField) const
-{
-	TArray<TSharedPtr<FJsonValue>> ObjectPoints;
-		
-	for(int32 i = 0; i < ArrayField.Num(); i++)
-	{
-		FString Index;
-		if(ArrayField[i]->AsObject()->TryGetStringField("referencedId", Index))
-		{
-			const auto Chunk = SpeckleObjects[Index]->GetArrayField("data");
-			ObjectPoints.Append(Chunk);
-		}
-		else
-		{
-			return ArrayField; //Array was never chunked to begin with
-		}
-	}
-	return ObjectPoints;
-}
+
 
 float ASpeckleUnrealManager::ParseScaleFactor(const FString& Units) const
 {
@@ -185,209 +33,78 @@ float ASpeckleUnrealManager::ParseScaleFactor(const FString& Units) const
 	return ParseUnits(Units.ToLower()) * WorldToCentimeters;
 }
 
-
-ASpeckleUnrealMesh* ASpeckleUnrealManager::CreateMesh(const TSharedPtr<FJsonObject> Obj, const TSharedPtr<FJsonObject> Parent)
+TArray<TSharedPtr<FJsonValue>> ASpeckleUnrealManager::CombineChunks(const TArray<TSharedPtr<FJsonValue>>& ArrayField) const
 {
-	const FString ObjId = Obj->GetStringField("id");
-	UE_LOG(LogTemp, Log, TEXT("Creating mesh for object %s"), *ObjId);
-
-	const FString Units = Obj->GetStringField("units");
-	const float ScaleFactor = ParseScaleFactor(Units);
-
-	const FString SpeckleType = Obj->GetStringField("speckle_type");
-
-	
-	ASpeckleUnrealMesh* MeshInstance = World->SpawnActor<ASpeckleUnrealMesh>(MeshActor);
-	
-	MeshInstance->SetActorLabel(FString::Printf(TEXT("%s - %s"), *SpeckleType, *ObjId));
-
-	//Parse optional Transform
-	{
-		FMatrix TransformMatrix = FMatrix::Identity;
-	
-		const TArray<TSharedPtr<FJsonValue>>* TransformData = nullptr;
-		if(Obj->HasField("properties") && Obj->GetObjectField("properties")->TryGetArrayField("transform", TransformData))
-		{
-			for(int32 Row = 0; Row < 4; Row++)
-				for(int32 Col = 0; Col < 4; Col++)
-				{
-					TransformMatrix.M[Row][Col] = TransformData->operator[](Row * 4 + Col)->AsNumber();
-				}
-			TransformMatrix = TransformMatrix.GetTransposed();
-			TransformMatrix.ScaleTranslation(FVector(ScaleFactor));
+	TArray<TSharedPtr<FJsonValue>> ObjectPoints;
 		
-			MeshInstance->SetActorTransform(FTransform(TransformMatrix));
+	for(int32 i = 0; i < ArrayField.Num(); i++)
+	{
+		FString Index;
+		if(ArrayField[i]->AsObject()->TryGetStringField("referencedId", Index))
+		{
+			const auto Chunk = SpeckleObjects[Index]->GetArrayField("data");
+			ObjectPoints.Append(Chunk);
+		}
+		else
+		{
+			return ArrayField; //Array was never chunked to begin with
 		}
 	}
-
-	//Parse Vertices
-	TArray<FVector> ParsedVertices;
-	int32 NumberOfVertices;
-	{
-		TArray<TSharedPtr<FJsonValue>> ObjectVertices = CombineChunks(Obj->GetArrayField("vertices"));
-		NumberOfVertices = ObjectVertices.Num() / 3;
-	
-		ParsedVertices.Reserve(NumberOfVertices);
-
-		for (size_t i = 0, j = 0; i < NumberOfVertices; i++, j += 3)
-		{
-			ParsedVertices.Add(MeshInstance->GetTransform().InverseTransformPosition(FVector
-			(
-				ObjectVertices[j].Get()->AsNumber(),
-				ObjectVertices[j + 1].Get()->AsNumber(),
-				ObjectVertices[j + 2].Get()->AsNumber()
-			) * ScaleFactor ));
-		
-		}
-	} 
-	
-	bool UseVertexIndexForTexCoordinate = false;
-	//Parse Texture Coordinates
-	TArray<FVector2D> ParsedTextureCoords;
-	{
-		const TArray<TSharedPtr<FJsonValue>>* TextCoordArray;
-		if(Obj->TryGetArrayField("textureCoordinates", TextCoordArray))
-		{
-			TArray<TSharedPtr<FJsonValue>> TexCoords = CombineChunks(*TextCoordArray);
-			
-			ParsedTextureCoords.Reserve(TexCoords.Num() / 2);
-			
-			for (int32 i = 0; i + 1 < TexCoords.Num(); i += 2)
-			{
-				ParsedTextureCoords.Add(FVector2D
-				(
-					TexCoords[i].Get()->AsNumber(),
-					TexCoords[i + 1].Get()->AsNumber()
-				));
-			}
-			
-			UseVertexIndexForTexCoordinate = ParsedTextureCoords.Num() == NumberOfVertices;
-		}
-	}
-
-	//Array of Faces (Tuple of Vertex index, TexCoord index)
-	TArray<TArray<TTuple<int32,int32>>> ParsedPolygons;
-	{
-		TArray<TSharedPtr<FJsonValue>> FaceVertices = CombineChunks(Obj->GetArrayField("faces"));
-		ParsedPolygons.Reserve(FaceVertices.Num() / 3); //Reserve space assuming faces will all be triangles
-		
-		int32 NIndex = 0, TIndex = 0;
-		while (NIndex < FaceVertices.Num()) //TODO some sort of assertion that there are indeed N more vertices
-		{			
-			//Number of vertices in polygon
-			int32 n = FaceVertices[NIndex].Get()->AsNumber();
-			if(n < 3) n += 3; // 0 -> 3, 1 -> 4
-
-			TArray<TTuple<int32,int32>> Polygon;
-			Polygon.Reserve(n);
-			
-			for(int32 i = n - 1; i >= 0; i--)
-			{
-				int32 VertexIndex = FaceVertices[NIndex + i + 1].Get()->AsNumber();
-				int32 TexCoordIndex = UseVertexIndexForTexCoordinate? VertexIndex : TIndex + i; //Some connectors (like sketchup) index texture coordinates using vertex index rather than sequentially (like blender)
-				
-				Polygon.Add(TTuple<int32,int32>(
-					VertexIndex,
-					TexCoordIndex)
-					);
-			}
-			NIndex += n + 1;
-			TIndex += n;
-			ParsedPolygons.Add(Polygon);
-		}
-
-		//Fill missing tex coords with default values
-		ParsedTextureCoords.SetNum(TIndex);
-	}
-	
-
-	// Material priority (low to high): DefaultMeshMaterial, Material set on parent, Converted RenderMaterial set on mesh, MaterialOverridesByName match, MaterialOverridesById match
-	UMaterialInterface* Material;
-
-	// if (Obj->HasField("renderMaterial"))
-	// {
-	// 	//Material = CreateMaterial(Obj->GetObjectField("renderMaterial"));
-	// }
-	// else if (Parent && Parent->HasField("renderMaterial"))
-	// {
-	// 	//Material = CreateMaterial(Parent->GetObjectField("renderMaterial"));
-	// }
-	// else
-		Material = DefaultMeshMaterial;
-
-	
-#if !WITH_EDITOR
-	constexpr bool UseFullBuildProcess = false;
-#endif
-	
-	MeshInstance->SetMesh(
-		StreamID,
-		ObjId,
-		ParsedVertices,
-		ParsedPolygons,
-		ParsedTextureCoords,
-		Material,
-		BuildSimpleCollisions,
-		UseFullBuildProcess
-		);
-
-	//UE_LOG(LogTemp, Warning, TEXT("Added %d vertices and %d triangles"), ParsedVertices.Num(), ParsedTriangles.Num());
-
-	return MeshInstance;
+	return ObjectPoints;
 }
 
 
-ASpeckleUnrealActor* ASpeckleUnrealManager::CreateBlockInstance(const TSharedPtr<FJsonObject> Obj)
-{
-	//Transform
-    const FString Units = Obj->GetStringField("units");
-	const float ScaleFactor = ParseScaleFactor(Units);
-	
-	const TArray<TSharedPtr<FJsonValue>>* TransformData;
-	if(!Obj->TryGetArrayField("transform", TransformData)) return nullptr;
-	
-	
-	FMatrix TransformMatrix;
-	for(int32 Row = 0; Row < 4; Row++)
-	for(int32 Col = 0; Col < 4; Col++)
-	{
-		TransformMatrix.M[Row][Col] = TransformData->operator[](Row * 4 + Col)->AsNumber();
-	}
-	TransformMatrix = TransformMatrix.GetTransposed();
-	TransformMatrix.ScaleTranslation(FVector(ScaleFactor));
-	
-	//Block Instance
-	const FString ObjectId = Obj->GetStringField("id"), SpeckleType = Obj->GetStringField("speckle_type");
-
-	ASpeckleUnrealActor* BlockInstance = World->SpawnActor<ASpeckleUnrealActor>();
-	BlockInstance->SetActorLabel(FString::Printf(TEXT("%s - %s"), *SpeckleType, *ObjectId));
-
-	
-	BlockInstance->SetActorTransform(FTransform(TransformMatrix));
-	
-	//Block Definition
-	const TSharedPtr<FJsonObject>* BlockDefinitionReference;
-	if(!Obj->TryGetObjectField("blockDefinition", BlockDefinitionReference)) return nullptr;
-	
-	const FString RefID = BlockDefinitionReference->operator->()->GetStringField("referencedId");
-	
-	const TSharedPtr<FJsonObject> BlockDefinition = SpeckleObjects[RefID];
-	
-	//For now just recreate mesh, eventually we should use instanced static mesh
-	const auto Geometries = BlockDefinition->GetArrayField("geometry");
-
-	for(const auto Child : Geometries)
-	{
-		const TSharedPtr<FJsonObject> MeshReference = Child->AsObject();
-		const FString MeshID = MeshReference->GetStringField("referencedId");
-		
-		//It is important that ParentObject is the BlockInstance not the BlockDefinition to keep NativeIDs of meshes unique between Block Instances
-		ImportObjectFromCache(BlockInstance, SpeckleObjects[MeshID], Obj);
-	}
-	
-	
-	return BlockInstance;
-}
-
-
-
+// ASpeckleUnrealActor* ASpeckleUnrealManager::CreateBlockInstance(const TSharedPtr<FJsonObject> Obj)
+// {
+// 	//Transform
+//     const FString Units = Obj->GetStringField("units");
+// 	const float ScaleFactor = ParseScaleFactor(Units);
+// 	
+// 	const TArray<TSharedPtr<FJsonValue>>* TransformData;
+// 	if(!Obj->TryGetArrayField("transform", TransformData)) return nullptr;
+// 	
+// 	
+// 	FMatrix TransformMatrix;
+// 	for(int32 Row = 0; Row < 4; Row++)
+// 	for(int32 Col = 0; Col < 4; Col++)
+// 	{
+// 		TransformMatrix.M[Row][Col] = TransformData->operator[](Row * 4 + Col)->AsNumber();
+// 	}
+// 	TransformMatrix = TransformMatrix.GetTransposed();
+// 	TransformMatrix.ScaleTranslation(FVector(ScaleFactor));
+// 	
+// 	//Block Instance
+// 	const FString ObjectId = Obj->GetStringField("id"), SpeckleType = Obj->GetStringField("speckle_type");
+//
+// 	ASpeckleUnrealActor* BlockInstance = World->SpawnActor<ASpeckleUnrealActor>();
+// 	BlockInstance->SetActorLabel(FString::Printf(TEXT("%s - %s"), *SpeckleType, *ObjectId));
+//
+// 	
+// 	BlockInstance->SetActorTransform(FTransform(TransformMatrix));
+// 	
+// 	//Block Definition
+// 	const TSharedPtr<FJsonObject>* BlockDefinitionReference;
+// 	if(!Obj->TryGetObjectField("blockDefinition", BlockDefinitionReference)) return nullptr;
+// 	
+// 	const FString RefID = BlockDefinitionReference->operator->()->GetStringField("referencedId");
+// 	
+// 	const TSharedPtr<FJsonObject> BlockDefinition = SpeckleObjects[RefID];
+// 	
+// 	//For now just recreate mesh, eventually we should use instanced static mesh
+// 	const auto Geometries = BlockDefinition->GetArrayField("geometry");
+//
+// 	for(const auto Child : Geometries)
+// 	{
+// 		const TSharedPtr<FJsonObject> MeshReference = Child->AsObject();
+// 		const FString MeshID = MeshReference->GetStringField("referencedId");
+// 		
+// 		//It is important that ParentObject is the BlockInstance not the BlockDefinition to keep NativeIDs of meshes unique between Block Instances
+// 		ImportObjectFromCache(BlockInstance, SpeckleObjects[MeshID], Obj);
+// 	}
+// 	
+// 	
+// 	return BlockInstance;
+// }
+//
+//
+//

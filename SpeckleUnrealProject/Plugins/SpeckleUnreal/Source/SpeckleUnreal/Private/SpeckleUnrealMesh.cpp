@@ -23,13 +23,13 @@ void ASpeckleUnrealMesh::SetMesh(const FString& StreamID, const FString& ObjectI
 	FString PackagePath = FPaths::Combine(TEXT("/Game/Speckle/Meshes"), StreamID, ObjectID);
 	UPackage* Package = CreatePackage(*PackagePath);
 	
-	
+
 	UStaticMesh* Mesh = NewObject<UStaticMesh>(Package, FName(ObjectID), RF_Public);
 	
 	Mesh->InitResources();
 	Mesh->SetLightingGuid();
 
-	UStaticMeshDescription* StaticMeshDescription = Mesh->CreateStaticMeshDescription(RootComponent);
+	UStaticMeshDescription* StaticMeshDescription = UStaticMesh::CreateStaticMeshDescription(RootComponent);
 	FMeshDescription& BaseMeshDescription = StaticMeshDescription->GetMeshDescription();
 
 	//Build Settings
@@ -51,8 +51,8 @@ void ASpeckleUnrealMesh::SetMesh(const FString& StreamID, const FString& ObjectI
 
 	//Set Mesh Data
 	
-	//const FName MaterialSlotName = Mesh->AddMaterial(Material);;
-	//BaseMeshDescription.PolygonGroupAttributes().RegisterAttribute<FName>(MeshAttribute::PolygonGroup::ImportedMaterialSlotName, 1, MaterialSlotName,  EMeshAttributeFlags::Transient);
+	const FName MaterialSlotName = Mesh->AddMaterial(Material);;
+	BaseMeshDescription.PolygonGroupAttributes().RegisterAttribute<FName>(MeshAttribute::PolygonGroup::ImportedMaterialSlotName, 1, MaterialSlotName,  EMeshAttributeFlags::Transient);
 	{
 		const size_t NumberOfVertices = Vertices.Num();
 		StaticMeshDescription->ReserveNewVertices(NumberOfVertices);
@@ -158,5 +158,5 @@ void ASpeckleUnrealMesh::SetMesh(const FString& StreamID, const FString& ObjectI
 	
 	MeshComponent->SetStaticMesh(Mesh);
 
-	//MeshComponent->SetMaterialByName(MaterialSlotName, Material);
+	MeshComponent->SetMaterialByName(MaterialSlotName, Material);
 }
